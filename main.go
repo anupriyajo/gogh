@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"github.com/cespare/xxhash/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/julienschmidt/httprouter"
+	"github.com/rwcarlsen/goexif/exif"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -38,6 +40,20 @@ func main() {
 	http.ListenAndServe(fmt.Sprintf("%s:%s", host, port), nil)
 }
 
+func findCoords(imageBytes *bytes.Buffer) (float64, float64, error) {
+	x, err := exif.Decode(imageBytes)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	lat, long, err := x.LatLong()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return lat, long, nil
+}
+
 func imageUnique(imageBytes []byte) (bool, error) {
 	knownImages := "images"
 	imageHash := fmt.Sprintf("%x", xxhash.Sum64(imageBytes))
@@ -63,6 +79,9 @@ func imageUpload(w http.ResponseWriter, r *http.Request, params httprouter.Param
 		println(err.Error())
 		return
 	}
+
+	lat, long, _ := findCoords(bytes.NewBuffer(imageBytes))
+	println(lat, long)
 
 	isUnique, err := imageUnique(imageBytes)
 	if err != nil {
