@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/cespare/xxhash"
+	"github.com/cespare/xxhash/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/julienschmidt/httprouter"
 	"io/ioutil"
@@ -35,12 +35,12 @@ func main() {
 	router.POST("/upload/:path", imageUpload)
 
 	http.Handle("/", router)
-	_ = http.ListenAndServe(fmt.Sprintf("%s:%s", host, port), nil)
+	http.ListenAndServe(fmt.Sprintf("%s:%s", host, port), nil)
 }
 
 func imageUnique(imageBytes []byte) (bool, error) {
 	knownImages := "images"
-	imageHash := xxhash.Sum64(imageBytes)
+	imageHash := fmt.Sprintf("%x", xxhash.Sum64(imageBytes))
 	result, err := rdb.SIsMember(ctx, knownImages, imageHash).Result()
 	if err != nil {
 		return false, err
@@ -53,11 +53,12 @@ func imageUnique(imageBytes []byte) (bool, error) {
 }
 
 func healthCheck(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
-	_, _ = fmt.Fprint(w, "ok")
+	fmt.Fprint(w, "ok")
 }
 
 func imageUpload(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
 	imageBytes, err := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
 	if err != nil {
 		println(err.Error())
 		return
@@ -69,5 +70,5 @@ func imageUpload(w http.ResponseWriter, r *http.Request, params httprouter.Param
 		return
 	}
 
-	_, _ = fmt.Fprint(w, isUnique)
+	fmt.Fprint(w, isUnique)
 }
