@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/cespare/xxhash/v2"
 	"github.com/go-redis/redis/v8"
@@ -54,6 +55,37 @@ func findCoords(imageBytes *bytes.Buffer) (float64, float64, error) {
 	return lat, long, nil
 }
 
+type LocationInfo struct {
+	HouseNumber string `json:"house_number"`
+	Road        string `json:"road"`
+	Suburb      string `json:"suburb"`
+	Borough     string `json:"borough"`
+	City        string `json:"city"`
+	Postcode    string `json:"postcode"`
+	Country     string `json:"country"`
+	CountryCode string `json:"country_code"`
+}
+
+type ApiResponse struct {
+	Address LocationInfo `json:"address"`
+}
+
+func fetchLocation(lat float64, lon float64) (*LocationInfo, error) {
+	apiUrl := fmt.Sprintf("https://nominatim.openstreetmap.org/reverse?format=json&lat=%f&lon=%f", lat, lon)
+	resp, err := http.Get(apiUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResponse ApiResponse
+	err = json.NewDecoder(resp.Body).Decode(&apiResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	return &apiResponse.Address, nil
+}
+
 func imageUnique(imageBytes []byte) (bool, error) {
 	knownImages := "images"
 	imageHash := fmt.Sprintf("%x", xxhash.Sum64(imageBytes))
@@ -80,8 +112,9 @@ func imageUpload(w http.ResponseWriter, r *http.Request, params httprouter.Param
 		return
 	}
 
-	lat, long, _ := findCoords(bytes.NewBuffer(imageBytes))
-	println(lat, long)
+	lat, lon, _ := findCoords(bytes.NewBuffer(imageBytes))
+	location, err := fetchLocation(lat, lon)
+	println(fmt.Sprintf("%v", location))
 
 	isUnique, err := imageUnique(imageBytes)
 	if err != nil {
