@@ -88,7 +88,11 @@ func fetchLocation(lat float64, lon float64) (string, error) {
 func resolveLocation(imageBytes []byte) (*LocationInfo, error) {
 	knownImages := "images"
 	imageHash := fmt.Sprintf("%x", xxhash.Sum64(imageBytes))
-	result, _ := rdb.HGet(ctx, knownImages, imageHash).Result()
+	result, err := rdb.HGet(ctx, knownImages, imageHash).Result()
+	if err != nil {
+		return nil, err
+	}
+
 	if result == "" {
 		lat, lon, err := findCoords(bytes.NewBuffer(imageBytes))
 		if err != nil {
@@ -105,9 +109,8 @@ func resolveLocation(imageBytes []byte) (*LocationInfo, error) {
 	}
 
 	var response ApiResponse
-	err := json.Unmarshal([]byte(result), &response)
+	err = json.Unmarshal([]byte(result), &response)
 	if err != nil {
-		println("johari"+ err.Error())
 		return nil, err
 	}
 
@@ -122,15 +125,20 @@ func imageUpload(w http.ResponseWriter, r *http.Request, params httprouter.Param
 	imageBytes, err := ioutil.ReadAll(r.Body)
 	defer r.Body.Close()
 	if err != nil {
-		println(err.Error())
+		errorOut(w, err)
 		return
 	}
 
 	location, err := resolveLocation(imageBytes)
 	if err != nil {
-		println(err.Error())
+		errorOut(w, err)
 		return
 	}
 
 	fmt.Fprint(w, fmt.Sprintf("%v", location))
+}
+
+func errorOut(w http.ResponseWriter, err error) {
+	w.WriteHeader(http.StatusInternalServerError)
+	fmt.Fprintf(w, err.Error())
 }
