@@ -70,34 +70,48 @@ type ApiResponse struct {
 	Address LocationInfo `json:"address"`
 }
 
-func fetchLocation(lat float64, lon float64) (*LocationInfo, error) {
+func fetchLocation(lat float64, lon float64) (string, error) {
 	apiUrl := fmt.Sprintf("https://nominatim.openstreetmap.org/reverse?format=json&lat=%f&lon=%f", lat, lon)
 	resp, err := http.Get(apiUrl)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	var apiResponse ApiResponse
-	err = json.NewDecoder(resp.Body).Decode(&apiResponse)
+	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return &apiResponse.Address, nil
+	return string(respBytes), nil
 }
 
-func imageUnique(imageBytes []byte) (bool, error) {
+func resolveLocation(imageBytes []byte) (*LocationInfo, error) {
 	knownImages := "images"
 	imageHash := fmt.Sprintf("%x", xxhash.Sum64(imageBytes))
-	result, err := rdb.SIsMember(ctx, knownImages, imageHash).Result()
-	if err != nil {
-		return false, err
-	}
-	if !result {
-		rdb.SAdd(ctx, knownImages, imageHash)
+	result, _ := rdb.HGet(ctx, knownImages, imageHash).Result()
+	if result == "" {
+		lat, lon, err := findCoords(bytes.NewBuffer(imageBytes))
+		if err != nil {
+			return nil, err
+		}
+
+		result, err = fetchLocation(lat, lon)
+
+		if err != nil {
+			return nil, err
+		}
+
+		rdb.HSet(ctx, knownImages, imageHash, result).Result()
 	}
 
-	return !result, nil
+	var response ApiResponse
+	err := json.Unmarshal([]byte(result), &response)
+	if err != nil {
+		println("johari"+ err.Error())
+		return nil, err
+	}
+
+	return &response.Address, nil
 }
 
 func healthCheck(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
@@ -112,15 +126,11 @@ func imageUpload(w http.ResponseWriter, r *http.Request, params httprouter.Param
 		return
 	}
 
-	lat, lon, _ := findCoords(bytes.NewBuffer(imageBytes))
-	location, err := fetchLocation(lat, lon)
-	println(fmt.Sprintf("%v", location))
-
-	isUnique, err := imageUnique(imageBytes)
+	location, err := resolveLocation(imageBytes)
 	if err != nil {
 		println(err.Error())
 		return
 	}
 
-	fmt.Fprint(w, isUnique)
+	fmt.Fprint(w, fmt.Sprintf("%v", location))
 }
